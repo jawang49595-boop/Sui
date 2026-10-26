@@ -1,0 +1,177 @@
+-- blox sp | Delta Version (Noclip Fly)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ໂຫຼດ Rayfield
+local success, Rayfield = pcall(function()
+   return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not success or not Rayfield then
+   warn("ບໍ່ສາມາດໂຫຼດ UI Library ໄດ້")
+   return
+end
+
+local Window = Rayfield:CreateWindow({
+   Name = "blox sp | Position & Speed",
+   LoadingTitle = "ກຳລັງໂຫຼດ...",
+   LoadingSubtitle = "Delta Version",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("เมนูหลัก", 4483362458)
+local SlotTab = Window:CreateTab("บันทึก 5 จุด", 4483362458)
+
+local savedSlots = {nil, nil, nil, nil, nil}
+local activeSlot = 1
+local flySpeed = 100
+
+local function getChar()
+   local c = LocalPlayer.Character
+   if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChildOfClass("Humanoid") then
+      return c, c.HumanoidRootPart, c:FindFirstChildOfClass("Humanoid")
+   end
+end
+
+-- ==================== ระบบบิน (ทะลุทุกอย่าง) ====================
+local moveConn, noclipConn
+local origCollide = {}
+
+local function stopFlight()
+   if moveConn then moveConn:Disconnect() moveConn = nil end
+   if noclipConn then noclipConn:Disconnect() noclipConn = nil end
+
+   local _, root, hum = getChar()
+   if root then
+      root.Anchored = false
+      root.AssemblyLinearVelocity = Vector3.zero
+      root.AssemblyAngularVelocity = Vector3.zero
+   end
+   if hum then
+      hum.PlatformStand = false
+      pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+   end
+   for part, val in pairs(origCollide) do
+      if part and part.Parent then part.CanCollide = val end
+   end
+   origCollide = {}
+end
+
+local function smoothFlyTo(target)
+   stopFlight()
+   local c, root, hum = getChar()
+   if not root then return end
+
+   hum.PlatformStand = true
+
+   for _, p in ipairs(c:GetDescendants()) do
+      if p:IsA("BasePart") then origCollide[p] = p.CanCollide end
+   end
+
+   -- ปิดการชนทุกเฟรม
+   noclipConn = RunService.Stepped:Connect(function()
+      local ch = LocalPlayer.Character
+      if not ch then return end
+      for _, p in ipairs(ch:GetDescendants()) do
+         if p:IsA("BasePart") then p.CanCollide = false end
+      end
+   end)
+
+   root.Anchored = true
+
+   local startPos = root.Position
+   local endPos = target.Position
+   local startRot = root.CFrame.Rotation
+   local endRot = target.Rotation
+   local duration = math.max((endPos - startPos).Magnitude / flySpeed, 0.3)
+   local elapsed = 0
+
+   moveConn = RunService.Heartbeat:Connect(function(dt)
+      local _, r2, h2 = getChar()
+      if not r2 or h2.Health <= 0 then
+         stopFlight()
+         return
+      end
+
+      elapsed += dt
+      local a = math.clamp(elapsed / duration, 0, 1)
+      local eased = -(math.cos(math.pi * a) - 1) / 2
+
+      r2.CFrame = CFrame.new(startPos:Lerp(endPos, eased)) * startRot:Lerp(endRot, eased)
+
+      if a >= 1 then
+         stopFlight()
+      end
+   end)
+end
+
+-- ==================== 1. Slot 1-5 ====================
+SlotTab:CreateSection("เลือกช่องสำหรับบันทึก")
+
+SlotTab:CreateDropdown({
+   Name = "🎯 เลือกช่องบันทึก (Slot)",
+   Options = {"Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5"},
+   CurrentOption = {"Slot 1"},
+   MultipleOptions = false,
+   Flag = "SlotDropdown",
+   Callback = function(Option)
+      local opt = type(Option) == "table" and Option[1] or Option
+      activeSlot = tonumber(tostring(opt):match("%d+")) or 1
+   end,
+})
+
+SlotTab:CreateButton({
+   Name = "💾 บันทึกตำแหน่งในช่องนี้",
+   Callback = function()
+      local _, root = getChar()
+      if root then
+         savedSlots[activeSlot] = root.CFrame
+         Rayfield:Notify({Title = "สำเร็จ", Content = "บันทึก Slot " .. activeSlot .. " แล้ว", Duration = 2})
+      end
+   end,
+})
+
+SlotTab:CreateButton({
+   Name = "🚀 บินไปช่องนี้ (ทะลุทุกอย่าง)",
+   Callback = function()
+      local target = savedSlots[activeSlot]
+      if not target then
+         Rayfield:Notify({Title = "แจ้งเตือน", Content = "ยังไม่ได้บันทึก Slot " .. activeSlot, Duration = 2})
+         return
+      end
+      smoothFlyTo(target)
+      Rayfield:Notify({Title = "กำลังบิน", Content = "ไปที่ Slot " .. activeSlot, Duration = 2})
+   end,
+})
+
+SlotTab:CreateButton({
+   Name = "🛑 หยุดบิน",
+   Callback = function() stopFlight() end,
+})
+
+-- ==================== 2. Speed ====================
+MainTab:CreateSection("ตั้งค่าความเร็ว")
+
+MainTab:CreateSlider({
+   Name = "✈️ ความเร็วในการบิน",
+   Range = {20, 500},
+   Increment = 10,
+   Suffix = " Speed",
+   CurrentValue = 100,
+   Flag = "FlySpeedSlider",
+   Callback = function(Value) flySpeed = Value end,
+})
+
+MainTab:CreateSlider({
+   Name = "⚡ ความเร็วเดิน (WalkSpeed)",
+   Range = {16, 200},
+   Increment = 1,
+   Suffix = " Speed",
+   CurrentValue = 16,
+   Flag = "WalkSpeedSlider",
+   Callback = function(Value)
+      local _, _, hum = getChar()
+      if hum then hum.WalkSpeed = Value end
+   end,
+})
